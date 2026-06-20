@@ -659,7 +659,7 @@ def main():
                             else:
                                 diffused = np.copy(smoothed_amps)
 
-                            ratios = diffused / ref_volume
+                            ratios = (diffused / ref_volume) * 1.25
                             norm_amps = np.clip(ratios, 0.0, 1.0)
                             norm_amps = norm_amps ** 1.35  # контрастный буст яркости
 
