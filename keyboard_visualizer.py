@@ -761,13 +761,13 @@ def main():
                                         bleed_factor
                                     )
 
-                               # Подмешиваем белый цвет в эпицентре перегрузки (клиппинга)
-                               if color_white_bleed[i] > 0.0:
-                                   active_color = interpolate_color(
-                                       (active_color.red, active_color.green, active_color.blue),
-                                       (255, 255, 255),
-                                       color_white_bleed[i]
-                                   )
+                                # Подмешиваем белый цвет в эпицентре перегрузки (клиппинга)
+                                if color_white_bleed[i] > 0.0:
+                                    active_color = interpolate_color(
+                                        (active_color.red, active_color.green, active_color.blue),
+                                        (255, 255, 255),
+                                        color_white_bleed[i]
+                                    )
 
                                 if MODE == 'spectrum_linear':
                                     r = int(BG_COLOR[0] + (active_color.red - BG_COLOR[0]) * norm_amp)
