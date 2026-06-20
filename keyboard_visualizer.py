@@ -12,7 +12,11 @@ import sys
 import time
 import socket
 import collections
+import warnings
 import numpy as np
+
+# Игнорируем предупреждения библиотеки soundcard о разрывах данных при отправке пакетов на клавиатуру
+warnings.filterwarnings("ignore", message="data discontinuity in recording")
 import soundcard as sc
 from openrgb import OpenRGBClient
 from openrgb.utils import RGBColor, DeviceType
