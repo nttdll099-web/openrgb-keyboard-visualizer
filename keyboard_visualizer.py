@@ -586,10 +586,11 @@ def main():
                             wave_pulses.append({'pos': center_pos, 'dir': 1.0, 'amp': 0.45, 'speed': 1.8})
 
                         # Если произошел резкий всплеск высоких частот выше среднего уровня:
-                        if norm_high > high_avg * 1.40 and norm_high > 0.20 and high_cooldown == 0:
-                            high_cooldown = 8
-                            # Запуск волны справа налево
-                            wave_pulses.append({'pos': float(num_leds - 1), 'dir': -1.0, 'amp': 0.4, 'speed': 1.8})
+                        # Если произошел резкий всплеск высоких частот выше среднего уровня:
+                        if norm_high > high_avg * 1.60 and norm_high > 0.35 and high_cooldown == 0:
+                            high_cooldown = 18
+                            # Запуск волны справа налево (более быстрая и мягкая)
+                            wave_pulses.append({'pos': float(num_leds - 1), 'dir': -1.0, 'amp': 0.35, 'speed': 2.2})
 
                         # 3. Распознавание музыкального жанра (соотношение НЧ к СЧ/ВЧ)
                         bass_energy = norm_bass
@@ -644,19 +645,42 @@ def main():
 
                             # Пространственная диффузия (перетекание света между соседними кнопками)
                             # Свечение «растекается» по клавиатуре из активных участков, сглаживая переходы
-                            if LIGHT_DIFFUSION > 0.0:
-                                padded = np.pad(smoothed_amps, 1, mode='edge')
-                                diffused = (
-                                    smoothed_amps * (1.0 - 2.0 * LIGHT_DIFFUSION) +
-                                    padded[:-2] * LIGHT_DIFFUSION +
-                                    padded[2:] * LIGHT_DIFFUSION
-                                )
-                                norm_amps = np.clip(diffused / ref_volume, 0.0, 1.0)
-                            else:
-                                norm_amps = np.clip(smoothed_amps / ref_volume, 0.0, 1.0)
+                             if LIGHT_DIFFUSION > 0.0:
+                                 padded = np.pad(smoothed_amps, 1, mode='edge')
+                                 diffused = (
+                                     smoothed_amps * (1.0 - 2.0 * LIGHT_DIFFUSION) +
+                                     padded[:-2] * LIGHT_DIFFUSION +
+                                     padded[2:] * LIGHT_DIFFUSION
+                                 )
+                             else:
+                                 diffused = np.copy(smoothed_amps)
 
-                            # Контрастное степенное усиление яркости (степень 1.35)
-                            norm_amps = norm_amps ** 1.35  # контрастный буст яркости
+                             ratios = diffused / ref_volume
+                             norm_amps = np.clip(ratios, 0.0, 1.0)
+                             norm_amps = norm_amps ** 1.35  # контрастный буст яркости
+
+                             # Эффект клиппинга (перегрузки) частот
+                             overload_offsets = np.zeros(num_leds)
+                             color_white_bleed = np.zeros(num_leds)
+                             for i in range(num_leds):
+                                 if ratios[i] > 1.0:
+                                     overload = ratios[i] - 1.0
+                                     # Растекание в зависимости от силы на ВСЮ клавиатуру
+                                     spread_width = 1.5 + overload * 35.0
+                                     spread_amp = min(overload * 0.7, 1.0)
+                                     
+                                     for j in range(num_leds):
+                                         dist = abs(i - j)
+                                         contrib = spread_amp * np.exp(-((dist / spread_width) ** 2))
+                                         overload_offsets[j] = max(overload_offsets[j], contrib)
+                                         
+                                         # Плавное побеление эпицентра перегрузки (только для НЧ и СЧ, чтобы ВЧ не стробили)
+                                         if dist <= 2 and i < int(num_leds * 0.75):
+                                             white_contrib = min(overload * 0.6, 0.95) * (1.0 - dist / 3.0)
+                                             color_white_bleed[j] = max(color_white_bleed[j], white_contrib)
+
+                             # Добавляем заливку перегрузки в яркость
+                             norm_amps = np.clip(norm_amps + overload_offsets, 0.0, 1.0)
 
                             # Обновление и отрисовка активных волн
                             active_waves = []
@@ -736,6 +760,14 @@ def main():
                                         (bg_color_base.red, bg_color_base.green, bg_color_base.blue),
                                         bleed_factor
                                     )
+
+                                 # Подмешиваем белый цвет в эпицентре перегрузки (клиппинга)
+                                 if color_white_bleed[i] > 0.0:
+                                     active_color = interpolate_color(
+                                         (active_color.red, active_color.green, active_color.blue),
+                                         (255, 255, 255),
+                                         color_white_bleed[i]
+                                     )
 
                                 if MODE == 'spectrum_linear':
                                     r = int(BG_COLOR[0] + (active_color.red - BG_COLOR[0]) * norm_amp)
