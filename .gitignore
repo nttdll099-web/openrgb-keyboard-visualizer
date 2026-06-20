@@ -1,0 +1,16 @@
+# Python cached files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.venv/
+venv/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+
+# Local model weights (if you want to keep RL minesweeper out of the keyboard repo)
+*.pth
