@@ -645,42 +645,42 @@ def main():
 
                             # Пространственная диффузия (перетекание света между соседними кнопками)
                             # Свечение «растекается» по клавиатуре из активных участков, сглаживая переходы
-                             if LIGHT_DIFFUSION > 0.0:
-                                 padded = np.pad(smoothed_amps, 1, mode='edge')
-                                 diffused = (
-                                     smoothed_amps * (1.0 - 2.0 * LIGHT_DIFFUSION) +
-                                     padded[:-2] * LIGHT_DIFFUSION +
-                                     padded[2:] * LIGHT_DIFFUSION
-                                 )
-                             else:
-                                 diffused = np.copy(smoothed_amps)
+                            if LIGHT_DIFFUSION > 0.0:
+                                padded = np.pad(smoothed_amps, 1, mode='edge')
+                                diffused = (
+                                    smoothed_amps * (1.0 - 2.0 * LIGHT_DIFFUSION) +
+                                    padded[:-2] * LIGHT_DIFFUSION +
+                                    padded[2:] * LIGHT_DIFFUSION
+                                )
+                            else:
+                                diffused = np.copy(smoothed_amps)
 
-                             ratios = diffused / ref_volume
-                             norm_amps = np.clip(ratios, 0.0, 1.0)
-                             norm_amps = norm_amps ** 1.35  # контрастный буст яркости
+                            ratios = diffused / ref_volume
+                            norm_amps = np.clip(ratios, 0.0, 1.0)
+                            norm_amps = norm_amps ** 1.35  # контрастный буст яркости
 
-                             # Эффект клиппинга (перегрузки) частот
-                             overload_offsets = np.zeros(num_leds)
-                             color_white_bleed = np.zeros(num_leds)
-                             for i in range(num_leds):
-                                 if ratios[i] > 1.0:
-                                     overload = ratios[i] - 1.0
-                                     # Растекание в зависимости от силы на ВСЮ клавиатуру
-                                     spread_width = 1.5 + overload * 35.0
-                                     spread_amp = min(overload * 0.7, 1.0)
-                                     
-                                     for j in range(num_leds):
-                                         dist = abs(i - j)
-                                         contrib = spread_amp * np.exp(-((dist / spread_width) ** 2))
-                                         overload_offsets[j] = max(overload_offsets[j], contrib)
-                                         
-                                         # Плавное побеление эпицентра перегрузки (только для НЧ и СЧ, чтобы ВЧ не стробили)
-                                         if dist <= 2 and i < int(num_leds * 0.75):
-                                             white_contrib = min(overload * 0.6, 0.95) * (1.0 - dist / 3.0)
-                                             color_white_bleed[j] = max(color_white_bleed[j], white_contrib)
+                            # Эффект клиппинга (перегрузки) частот
+                            overload_offsets = np.zeros(num_leds)
+                            color_white_bleed = np.zeros(num_leds)
+                            for i in range(num_leds):
+                                if ratios[i] > 1.0:
+                                    overload = ratios[i] - 1.0
+                                    # Растекание в зависимости от силы на ВСЮ клавиатуру
+                                    spread_width = 1.5 + overload * 35.0
+                                    spread_amp = min(overload * 0.7, 1.0)
+                                    
+                                    for j in range(num_leds):
+                                        dist = abs(i - j)
+                                        contrib = spread_amp * np.exp(-((dist / spread_width) ** 2))
+                                        overload_offsets[j] = max(overload_offsets[j], contrib)
+                                        
+                                        # Плавное побеление эпицентра перегрузки (только для НЧ и СЧ, чтобы ВЧ не стробили)
+                                        if dist <= 2 and i < int(num_leds * 0.75):
+                                            white_contrib = min(overload * 0.6, 0.95) * (1.0 - dist / 3.0)
+                                            color_white_bleed[j] = max(color_white_bleed[j], white_contrib)
 
-                             # Добавляем заливку перегрузки в яркость
-                             norm_amps = np.clip(norm_amps + overload_offsets, 0.0, 1.0)
+                            # Добавляем заливку перегрузки в яркость
+                            norm_amps = np.clip(norm_amps + overload_offsets, 0.0, 1.0)
 
                             # Обновление и отрисовка активных волн
                             active_waves = []
