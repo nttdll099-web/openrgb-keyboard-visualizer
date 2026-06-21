@@ -25,8 +25,9 @@ from openrgb.utils import RGBColor, DeviceType
 # КОНСТАНТЫ НАСТРОЙКИ (КАЛИБРОВКА)
 # ==============================================================================
 FPS = 60                # Частота обновления клавиатуры (кадров в секунду)
-SMOOTHING_BASS = 0.35   # Скорость спада баса (чем выше, тем быстрее диоды тухнут на спадах звука)
-SMOOTHING_TREBLE = 0.19 # Скорость спада средних и высоких частот (для плавности картинки)
+SMOOTHING_BASS = 0.35   # Скорость спада баса (при эталонных 120 BPM)
+SMOOTHING_MID = 0.25    # Скорость спада средних частот (при эталонных 120 BPM)
+SMOOTHING_HIGH = 0.15   # Скорость спада высоких частот (при эталонных 120 BPM)
 SENSITIVITY = 1.0       # Общий множитель чувствительности к звуку
 LIGHT_DIFFUSION = 0.22  # Перетекание света между клавишами (0.0 - выкл, 0.22 - средний красивый размыв, 0.4 - размытие в кашу)
 
@@ -422,6 +423,16 @@ def main():
     smoothed_pulse = np.zeros(3)
     ref_volume = 0.1
     
+    # Динамические переменные затухания и трекинга BPM
+    dynamic_bass_smoothing = SMOOTHING_BASS
+    dynamic_mid_smoothing = SMOOTHING_MID
+    dynamic_high_smoothing = SMOOTHING_HIGH
+    
+    last_beat_times = [0.0, 0.0, 0.0]  # [бас, СЧ, ВЧ]
+    beat_intervals = [collections.deque(maxlen=10) for _ in range(3)]
+    current_bpms = [120.0, 120.0, 120.0]  # [бас, СЧ, ВЧ]
+    last_bpm_print_time = time.time()
+    
     # Состояние анимации
     hue_offset = 0.0
     smooth_x = 0.0
@@ -536,7 +547,7 @@ def main():
                         # Сглаживание по трем полосам с разделением
                         for i in range(3):
                             val = raw_pulse[i]
-                            k_smooth = SMOOTHING_BASS if i == 0 else SMOOTHING_TREBLE
+                            k_smooth = dynamic_bass_smoothing if i == 0 else (dynamic_mid_smoothing if i == 1 else dynamic_high_smoothing)
                             if val > smoothed_pulse[i]:
                                 smoothed_pulse[i] = 0.85 * val + 0.15 * smoothed_pulse[i]
                             else:
@@ -580,6 +591,14 @@ def main():
                             beat_color_shift = 65.0  # Внезапный сдвиг оттенка на 65 градусов при ударе баса!
                             # Запуск волны слева направо (амплитуда 0.5, скорость 1.8 светодиода/кадр)
                             wave_pulses.append({'pos': 0.0, 'dir': 1.0, 'amp': 0.5, 'speed': 1.8})
+                            
+                            # Расчет интервала басового бита
+                            current_time = time.time()
+                            if last_beat_times[0] > 0.0:
+                                dt = current_time - last_beat_times[0]
+                                if 0.22 <= dt <= 2.0:
+                                    beat_intervals[0].append(dt)
+                            last_beat_times[0] = current_time
 
                         # Если произошел резкий всплеск средних частот выше среднего уровня:
                         if norm_mid > mid_avg * 1.40 and norm_mid > 0.20 and mid_cooldown == 0:
@@ -588,13 +607,54 @@ def main():
                             center_pos = float(num_leds // 2)
                             wave_pulses.append({'pos': center_pos, 'dir': -1.0, 'amp': 0.45, 'speed': 1.8})
                             wave_pulses.append({'pos': center_pos, 'dir': 1.0, 'amp': 0.45, 'speed': 1.8})
+                            
+                            # Расчет интервала СЧ бита
+                            current_time = time.time()
+                            if last_beat_times[1] > 0.0:
+                                dt = current_time - last_beat_times[1]
+                                if 0.22 <= dt <= 2.0:
+                                    beat_intervals[1].append(dt)
+                            last_beat_times[1] = current_time
 
-                        # Если произошел резкий всплеск высоких частот выше среднего уровня:
                         # Если произошел резкий всплеск высоких частот выше среднего уровня:
                         if norm_high > high_avg * 1.60 and norm_high > 0.35 and high_cooldown == 0:
                             high_cooldown = 18
                             # Запуск волны справа налево (более быстрая и мягкая)
                             wave_pulses.append({'pos': float(num_leds - 1), 'dir': -1.0, 'amp': 0.35, 'speed': 2.2})
+                            
+                            # Расчет интервала ВЧ бита
+                            current_time = time.time()
+                            if last_beat_times[2] > 0.0:
+                                dt = current_time - last_beat_times[2]
+                                if 0.22 <= dt <= 2.0:
+                                    beat_intervals[2].append(dt)
+                            last_beat_times[2] = current_time
+
+                        # Расчет и сглаживание BPM, а также динамических коэффициентов спада
+                        current_time = time.time()
+                        for band in range(3):
+                            if last_beat_times[band] > 0.0 and current_time - last_beat_times[band] > 3.0:
+                                # Плавный дрейф к 120 BPM при отсутствии ударов
+                                current_bpms[band] = 0.95 * current_bpms[band] + 0.05 * 120.0
+                            elif len(beat_intervals[band]) >= 3:
+                                median_ibi = np.median(beat_intervals[band])
+                                instant_bpm = 60.0 / median_ibi
+                                current_bpms[band] = 0.9 * current_bpms[band] + 0.1 * instant_bpm
+
+                        # Вычисляем динамические коэффициенты спада
+                        dynamic_bass_smoothing = 1.0 - (1.0 - SMOOTHING_BASS) ** (current_bpms[0] / 120.0)
+                        dynamic_mid_smoothing = 1.0 - (1.0 - SMOOTHING_MID) ** (current_bpms[1] / 120.0)
+                        dynamic_high_smoothing = 1.0 - (1.0 - SMOOTHING_HIGH) ** (current_bpms[2] / 120.0)
+
+                        # Ограничиваем разумными пределами
+                        dynamic_bass_smoothing = np.clip(dynamic_bass_smoothing, 0.02, 0.95)
+                        dynamic_mid_smoothing = np.clip(dynamic_mid_smoothing, 0.02, 0.95)
+                        dynamic_high_smoothing = np.clip(dynamic_high_smoothing, 0.02, 0.95)
+
+                        # Периодическая печать текущих значений BPM
+                        if current_time - last_bpm_print_time >= 2.0:
+                            print(f"[BPM] Бас: {current_bpms[0]:.1f} | СЧ: {current_bpms[1]:.1f} | ВЧ: {current_bpms[2]:.1f}")
+                            last_bpm_print_time = current_time
 
                         # 3. Распознавание музыкального жанра (соотношение НЧ к СЧ/ВЧ)
                         bass_energy = norm_bass
@@ -635,12 +695,25 @@ def main():
 
                             raw_amps *= SENSITIVITY
 
-                            # Сглаживание EMA с разделением на басы (быстрый спад) и СЧ/ВЧ (плавный спад)
+                            # Сглаживание EMA с плавной пространственной интерполяцией динамического затухания по BPM
                             for i in range(num_leds):
                                 val = raw_amps[i]
-                                # Для басового регистра (первые 25% светодиодов) делаем быстрый спад (SMOOTHING_BASS),
-                                # чтобы моментально видеть малейшие проседания басового ритма.
-                                k_smooth = SMOOTHING_BASS if i < int(num_leds * 0.25) else SMOOTHING_TREBLE
+                                
+                                # Рассчитываем положение светодиода от 0.0 до 1.0
+                                x = i / (num_leds - 1) if num_leds > 1 else 0.0
+                                
+                                # Плавная интерполяция коэффициентов затухания по длине клавиатуры:
+                                # [0.0 to 0.25] - переход от баса к средним частотам
+                                # [0.25 to 0.75] - переход от средних к высоким частотам
+                                # [0.75 to 1.0] - высокие частоты
+                                if x < 0.25:
+                                    t = x / 0.25
+                                    k_smooth = (1.0 - t) * dynamic_bass_smoothing + t * dynamic_mid_smoothing
+                                elif x < 0.75:
+                                    t = (x - 0.25) / 0.50
+                                    k_smooth = (1.0 - t) * dynamic_mid_smoothing + t * dynamic_high_smoothing
+                                else:
+                                    k_smooth = dynamic_high_smoothing
                                 
                                 if val > smoothed_amps[i]:
                                     smoothed_amps[i] = 0.85 * val + 0.15 * smoothed_amps[i]
