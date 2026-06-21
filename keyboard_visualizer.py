@@ -640,10 +640,10 @@ def main():
                                 median_ibi = np.median(beat_intervals[band])
                                 raw_bpm = 60.0 / median_ibi
                                 
-                                # Октавное выравнивание (приводим к диапазону 80-160 BPM)
-                                while raw_bpm < 80.0:
+                                # Октавное выравнивание (приводим к диапазону 60-180 BPM)
+                                while raw_bpm < 60.0:
                                     raw_bpm *= 2.0
-                                while raw_bpm > 160.0:
+                                while raw_bpm > 180.0:
                                     raw_bpm /= 2.0
                                     
                                 # Сглаживание через EMA (коэффициент 0.05 для стабильности)
