@@ -428,8 +428,9 @@ def main():
     dynamic_mid_smoothing = SMOOTHING_MID
     dynamic_high_smoothing = SMOOTHING_HIGH
     
-    last_beat_times = [0.0, 0.0, 0.0]  # [бас, СЧ, ВЧ]
-    beat_intervals = [collections.deque(maxlen=10) for _ in range(3)]
+    # Счётчик кадров для стабильного замера времени между ударами
+    frames_since_last_beat = [0, 0, 0]  # [бас, СЧ, ВЧ]
+    beat_intervals = [collections.deque(maxlen=15) for _ in range(3)]  # Увеличим историю до 15 ударов
     current_bpms = [120.0, 120.0, 120.0]  # [бас, СЧ, ВЧ]
     last_bpm_print_time = time.time()
     
@@ -494,6 +495,10 @@ def main():
                     n_samples = len(mono_data)
                     if n_samples == 0:
                         continue
+
+                    # Увеличиваем счётчик кадров для каждой частотной полосы
+                    for b in range(3):
+                        frames_since_last_beat[b] += 1
 
                     # Проверка тишины (Silence Detection)
                     max_amp = np.max(np.abs(mono_data))
@@ -592,13 +597,11 @@ def main():
                             # Запуск волны слева направо (амплитуда 0.5, скорость 1.8 светодиода/кадр)
                             wave_pulses.append({'pos': 0.0, 'dir': 1.0, 'amp': 0.5, 'speed': 1.8})
                             
-                            # Расчет интервала басового бита
-                            current_time = time.time()
-                            if last_beat_times[0] > 0.0:
-                                dt = current_time - last_beat_times[0]
-                                if 0.22 <= dt <= 2.0:
-                                    beat_intervals[0].append(dt)
-                            last_beat_times[0] = current_time
+                            # Расчет интервала басового бита по кадрам
+                            dt = frames_since_last_beat[0] * (CHUNK_SIZE / SAMPLE_RATE)
+                            if dt >= 0.22:
+                                beat_intervals[0].append(dt)
+                                frames_since_last_beat[0] = 0
 
                         # Если произошел резкий всплеск средних частот выше среднего уровня:
                         if norm_mid > mid_avg * 1.40 and norm_mid > 0.20 and mid_cooldown == 0:
@@ -608,13 +611,11 @@ def main():
                             wave_pulses.append({'pos': center_pos, 'dir': -1.0, 'amp': 0.45, 'speed': 1.8})
                             wave_pulses.append({'pos': center_pos, 'dir': 1.0, 'amp': 0.45, 'speed': 1.8})
                             
-                            # Расчет интервала СЧ бита
-                            current_time = time.time()
-                            if last_beat_times[1] > 0.0:
-                                dt = current_time - last_beat_times[1]
-                                if 0.22 <= dt <= 2.0:
-                                    beat_intervals[1].append(dt)
-                            last_beat_times[1] = current_time
+                            # Расчет интервала СЧ бита по кадрам
+                            dt = frames_since_last_beat[1] * (CHUNK_SIZE / SAMPLE_RATE)
+                            if dt >= 0.22:
+                                beat_intervals[1].append(dt)
+                                frames_since_last_beat[1] = 0
 
                         # Если произошел резкий всплеск высоких частот выше среднего уровня:
                         if norm_high > high_avg * 1.60 and norm_high > 0.35 and high_cooldown == 0:
@@ -622,24 +623,31 @@ def main():
                             # Запуск волны справа налево (более быстрая и мягкая)
                             wave_pulses.append({'pos': float(num_leds - 1), 'dir': -1.0, 'amp': 0.35, 'speed': 2.2})
                             
-                            # Расчет интервала ВЧ бита
-                            current_time = time.time()
-                            if last_beat_times[2] > 0.0:
-                                dt = current_time - last_beat_times[2]
-                                if 0.22 <= dt <= 2.0:
-                                    beat_intervals[2].append(dt)
-                            last_beat_times[2] = current_time
+                            # Расчет интервала ВЧ бита по кадрам
+                            dt = frames_since_last_beat[2] * (CHUNK_SIZE / SAMPLE_RATE)
+                            if dt >= 0.22:
+                                beat_intervals[2].append(dt)
+                                frames_since_last_beat[2] = 0
 
                         # Расчет и сглаживание BPM, а также динамических коэффициентов спада
                         current_time = time.time()
                         for band in range(3):
-                            if last_beat_times[band] > 0.0 and current_time - last_beat_times[band] > 3.0:
+                            dt_since_last = frames_since_last_beat[band] * (CHUNK_SIZE / SAMPLE_RATE)
+                            if dt_since_last > 3.0:
                                 # Плавный дрейф к 120 BPM при отсутствии ударов
                                 current_bpms[band] = 0.95 * current_bpms[band] + 0.05 * 120.0
                             elif len(beat_intervals[band]) >= 3:
                                 median_ibi = np.median(beat_intervals[band])
-                                instant_bpm = 60.0 / median_ibi
-                                current_bpms[band] = 0.9 * current_bpms[band] + 0.1 * instant_bpm
+                                raw_bpm = 60.0 / median_ibi
+                                
+                                # Октавное выравнивание (приводим к диапазону 80-160 BPM)
+                                while raw_bpm < 80.0:
+                                    raw_bpm *= 2.0
+                                while raw_bpm > 160.0:
+                                    raw_bpm /= 2.0
+                                    
+                                # Сглаживание через EMA (коэффициент 0.05 для стабильности)
+                                current_bpms[band] = 0.95 * current_bpms[band] + 0.05 * raw_bpm
 
                         # Вычисляем динамические коэффициенты спада
                         dynamic_bass_smoothing = 1.0 - (1.0 - SMOOTHING_BASS) ** (current_bpms[0] / 120.0)
