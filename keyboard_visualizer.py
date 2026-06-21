@@ -659,9 +659,9 @@ def main():
                         dynamic_mid_smoothing = np.clip(dynamic_mid_smoothing, 0.02, 0.95)
                         dynamic_high_smoothing = np.clip(dynamic_high_smoothing, 0.02, 0.95)
 
-                        # Периодическая печать текущих значений BPM
-                        if current_time - last_bpm_print_time >= 2.0:
-                            print(f"[BPM] Бас: {current_bpms[0]:.1f} | СЧ: {current_bpms[1]:.1f} | ВЧ: {current_bpms[2]:.1f}")
+                        # Периодическая печать текущих значений BPM в одну динамическую строку
+                        if current_time - last_bpm_print_time >= 0.1:
+                            print(f"\r[BPM] Бас: {current_bpms[0]:.1f} | СЧ: {current_bpms[1]:.1f} | ВЧ: {current_bpms[2]:.1f}   ", end="", flush=True)
                             last_bpm_print_time = current_time
 
                         # 3. Распознавание музыкального жанра (соотношение НЧ к СЧ/ВЧ)
